@@ -86,17 +86,28 @@ impl Serialize for TwoPointZero {
 /// [`super::request::Request`] (which in turn borrows it from the input buffer that is shared between requests);
 /// or, it can be an owned [`String`].
 #[derive(Clone, Debug)]
-pub struct Params<'a>(Option<Cow<'a, str>>);
+pub struct Params<'a> {
+	uri: Option<String>,
+	body: Option<Cow<'a, str>>,
+}
 
 impl<'a> Params<'a> {
 	/// Create params
-	pub fn new(raw: Option<&'a str>) -> Self {
-		Self(raw.map(|r| r.trim().into()))
+	pub fn new(u: Option<&str>, raw: Option<&'a str>) -> Self {
+		Self {
+			uri: u.map(Into::into),
+			body: raw.map(|r| r.trim().into()),
+		}
+	}
+
+	/// Returns the URI where the RPC call was made
+	pub fn uri(&self) -> &str {
+		self.uri.as_ref().map(String::as_str).unwrap_or("")
 	}
 
 	/// Returns true if the contained JSON is an object
 	pub fn is_object(&self) -> bool {
-		let json: &str = match self.0 {
+		let json: &str = match self.body {
 			Some(ref cow) => cow,
 			None => return false,
 		};
@@ -108,7 +119,7 @@ impl<'a> Params<'a> {
 	/// This allows sequential parsing of the incoming params, using an `Iterator`-style API and is useful when the RPC
 	/// request has optional parameters at the tail that may or may not be present.
 	pub fn sequence(&self) -> ParamsSequence {
-		let json = match self.0.as_ref() {
+		let json = match self.body.as_ref() {
 			// It's assumed that params is `[a,b,c]`, if empty regard as no params.
 			Some(json) if json == "[]" => "",
 			Some(json) => json,
@@ -123,7 +134,7 @@ impl<'a> Params<'a> {
 		T: Deserialize<'a>,
 	{
 		// NOTE(niklasad1): Option::None is serialized as `null` so we provide that here.
-		let params = self.0.as_ref().map(AsRef::as_ref).unwrap_or("null");
+		let params = self.body.as_ref().map(AsRef::as_ref).unwrap_or("null");
 		serde_json::from_str(params).map_err(|e| CallError::InvalidParams(e.into()))
 	}
 
@@ -139,7 +150,10 @@ impl<'a> Params<'a> {
 	///
 	/// This will cause an allocation if the params internally are using a borrowed JSON slice.
 	pub fn into_owned(self) -> Params<'static> {
-		Params(self.0.map(|s| Cow::owned(s.into_owned())))
+		Params {
+			uri: self.uri,
+			body: self.body.map(|s| Cow::owned(s.into_owned())),
+		}
 	}
 }
 
@@ -201,7 +215,7 @@ impl<'a> ParamsSequence<'a> {
 	///
 	/// ```
 	/// # use jsonrpsee_types::params::Params;
-	/// let params = Params::new(Some(r#"[true, 10, "foo"]"#));
+	/// let params = Params::new(None, Some(r#"[true, 10, "foo"]"#));
 	/// let mut seq = params.sequence();
 	///
 	/// let a: bool = seq.next().unwrap();
@@ -229,7 +243,7 @@ impl<'a> ParamsSequence<'a> {
 	///
 	/// ```
 	/// # use jsonrpsee_types::params::Params;
-	/// let params = Params::new(Some(r#"[1, 2, null]"#));
+	/// let params = Params::new(None, Some(r#"[1, 2, null]"#));
 	/// let mut seq = params.sequence();
 	///
 	/// let params: [Option<u32>; 4] = [
@@ -460,11 +474,11 @@ mod test {
 
 	#[test]
 	fn params_parse() {
-		let none = Params::new(None);
+		let none = Params::new(None, None);
 		assert!(none.sequence().next::<u64>().is_err());
 		assert!(none.parse::<Option<u64>>().is_ok());
 
-		let array_params = Params::new(Some("[1, 2, 3]"));
+		let array_params = Params::new(None, Some("[1, 2, 3]"));
 		let arr: Result<[u64; 3], _> = array_params.parse();
 		assert!(arr.is_ok());
 
@@ -475,29 +489,29 @@ mod test {
 		assert_eq!(seq.next::<u64>().unwrap(), 3);
 		assert!(seq.next::<u64>().is_err());
 
-		let array_one = Params::new(Some("[1]"));
+		let array_one = Params::new(None, Some("[1]"));
 		let one: Result<u64, _> = array_one.one();
 		assert!(one.is_ok());
 
-		let object_params = Params::new(Some(r#"{"beef":99,"dinner":0}"#));
+		let object_params = Params::new(None, Some(r#"{"beef":99,"dinner":0}"#));
 		let obj: Result<JsonValue, _> = object_params.parse();
 		assert!(obj.is_ok());
 	}
 
 	#[test]
 	fn params_parse_empty_json() {
-		let array_params = Params::new(Some("[]"));
+		let array_params = Params::new(None, Some("[]"));
 		let arr: Result<Vec<u64>, _> = array_params.parse();
 		assert!(arr.is_ok());
 
-		let obj_params = Params::new(Some("{}"));
+		let obj_params = Params::new(None, Some("{}"));
 		let obj: Result<JsonValue, _> = obj_params.parse();
 		assert!(obj.is_ok());
 	}
 
 	#[test]
 	fn params_sequence_borrows() {
-		let params = Params::new(Some(r#"["foo", "bar"]"#));
+		let params = Params::new(None, Some(r#"["foo", "bar"]"#));
 		let mut seq = params.sequence();
 
 		assert_eq!(seq.next::<&str>().unwrap(), "foo");
@@ -552,25 +566,25 @@ mod test {
 
 	#[test]
 	fn params_sequence_optional_ignore_empty() {
-		let params = Params::new(Some(r#"["foo", "bar"]"#));
+		let params = Params::new(None, Some(r#"["foo", "bar"]"#));
 		let mut seq = params.sequence();
 
 		assert_eq!(seq.optional_next::<&str>().unwrap(), Some("foo"));
 		assert_eq!(seq.optional_next::<&str>().unwrap(), Some("bar"));
 
-		let params = Params::new(Some(r#"[]"#));
+		let params = Params::new(None, Some(r#"[]"#));
 		let mut seq = params.sequence();
 		assert!(seq.optional_next::<&str>().unwrap().is_none());
 
-		let params = Params::new(Some(r#"   []		"#));
+		let params = Params::new(None, Some(r#"   []		"#));
 		let mut seq = params.sequence();
 		assert!(seq.optional_next::<&str>().unwrap().is_none());
 
-		let params = Params::new(Some(r#"{}"#));
+		let params = Params::new(None, Some(r#"{}"#));
 		let mut seq = params.sequence();
 		assert!(seq.optional_next::<&str>().is_err(), "JSON object not supported by RpcSequence");
 
-		let params = Params::new(Some(r#"[12, "[]", [], {}]"#));
+		let params = Params::new(None, Some(r#"[12, "[]", [], {}]"#));
 		let mut seq = params.sequence();
 		assert_eq!(seq.optional_next::<u64>().unwrap(), Some(12));
 		assert_eq!(seq.optional_next::<&str>().unwrap(), Some("[]"));
@@ -580,7 +594,7 @@ mod test {
 
 	#[test]
 	fn params_sequence_optional_nesting_works() {
-		let nested = Params::new(Some(r#"[1, [2], [3, 4], [[5], [6,7], []], {"named":7}]"#));
+		let nested = Params::new(None, Some(r#"[1, [2], [3, 4], [[5], [6,7], []], {"named":7}]"#));
 		let mut seq = nested.sequence();
 		assert_eq!(seq.optional_next::<i8>().unwrap(), Some(1));
 		assert_eq!(seq.optional_next::<[i8; 1]>().unwrap(), Some([2]));

@@ -441,7 +441,7 @@ async fn background_task(
 					rx_log_from_json(&req, max_log_length);
 
 					let id = req.id.clone();
-					let params = Params::new(req.params.map(|params| params.get()));
+					let params = Params::new(None, req.params.map(|params| params.get()));
 
 					middleware.on_call(&req.method);
 
@@ -563,7 +563,7 @@ async fn background_task(
 
 							join_all(batch.into_iter().filter_map(move |req| {
 								let id = req.id.clone();
-								let params = Params::new(req.params.map(|params| params.get()));
+								let params = Params::new(None, req.params.map(|params| params.get()));
 								let name = &req.method;
 
 								match methods.method_with_name(name) {

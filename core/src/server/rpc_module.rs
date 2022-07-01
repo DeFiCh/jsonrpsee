@@ -410,7 +410,7 @@ impl Methods {
 		let (tx_sink, mut rx_sink) = mpsc::unbounded();
 		let sink = MethodSink::new(tx_sink);
 		let id = req.id.clone();
-		let params = Params::new(req.params.map(|params| params.get()));
+		let params = Params::new(None, req.params.map(|params| params.get()));
 		let bounded_subs = BoundedSubscriptions::new(u32::MAX);
 		let close_notify = bounded_subs.acquire().expect("u32::MAX permits is sufficient; qed");
 		let notify = bounded_subs.acquire().expect("u32::MAX permits is sufficient; qed");
@@ -1051,7 +1051,7 @@ impl Drop for SubscriptionSink {
 		if let Some(id) = self.id.take() {
 			// Subscription was never accepted / rejected. As such,
 			// we default to assuming that the params were invalid,
-			// because that's how the previous PendingSubscription logic 
+			// because that's how the previous PendingSubscription logic
 			// worked.
 			self.inner.send_error(id, ErrorCode::InvalidParams.into());
 		} else if self.is_active_subscription() {

@@ -26,6 +26,7 @@ macro_rules! cfg_http_helpers {
 	};
 }
 
+#[allow(unused_macros)]
 macro_rules! cfg_async_client {
     ($($item:item)*) => {
         $(

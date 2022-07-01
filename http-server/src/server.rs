@@ -611,7 +611,7 @@ async fn process_validated_request(
 			middleware.on_call(method);
 
 			let id = req.id.clone();
-			let params = Params::new(req.params.map(|params| params.get()));
+			let params = Params::new(Some(parts.uri.path()), req.params.map(|params| params.get()));
 
 			let result = match methods.method_with_name(method) {
 				None => {
@@ -683,7 +683,7 @@ async fn process_validated_request(
 
 			join_all(batch.into_iter().filter_map(move |req| {
 				let id = req.id.clone();
-				let params = Params::new(req.params.map(|params| params.get()));
+				let params = Params::new(Some(parts.uri.path()), req.params.map(|params| params.get()));
 
 				match methods.method_with_name(&req.method) {
 					None => {
@@ -787,12 +787,12 @@ async fn process_health_request(
 		None => false,
 		Some((name, method_callback)) => match method_callback.inner() {
 			MethodKind::Sync(callback) => {
-				let res = (callback)(Id::Number(0), Params::new(None), &sink);
+				let res = (callback)(Id::Number(0), Params::new(None, None), &sink);
 				middleware.on_result(name, res, request_start);
 				res
 			}
 			MethodKind::Async(callback) => {
-				let res = (callback)(Id::Number(0), Params::new(None), sink.clone(), 0, None).await;
+				let res = (callback)(Id::Number(0), Params::new(None, None), sink.clone(), 0, None).await;
 				middleware.on_result(name, res, request_start);
 				res
 			}
